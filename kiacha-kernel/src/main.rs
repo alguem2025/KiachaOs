@@ -4,11 +4,20 @@ mod permissions;
 mod resources;
 mod wasm_runtime;
 mod security;
+mod proto;
+mod event_bus;
+mod grpc_server;
+mod system_info;
+mod network_info;
+mod user_manager;
 
 use kernel::KiachaKernel;
+use grpc_server::KiachaKernelService;
 use std::net::SocketAddr;
 use tracing::{info, Level};
 use tracing_subscriber;
+use std::sync::Arc;
+use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,13 +29,19 @@ async fn main() -> anyhow::Result<()> {
     info!("🚀 Kiacha OS Kernel starting...");
 
     // Initialize kernel
-    let kernel = KiachaKernel::new().await?;
+    let kernel = Arc::new(KiachaKernel::new().await?);
 
-    // Start IPC server (gRPC)
+    // Create gRPC service
+    let svc = KiachaKernelService::new(kernel.clone());
+
+    // Start IPC gRPC server
     let addr: SocketAddr = "[::1]:50051".parse()?;
-    info!("IPC server listening on {}", addr);
+    info!("🌐 gRPC server listening on {}", addr);
 
-    kernel.start_ipc_server(addr).await?;
+    Server::builder()
+        .add_service(proto::kiacha_kernel::kiacha_kernel_server::KiachaKernelServer::new(svc))
+        .serve(addr)
+        .await?;
 
     info!("✓ Kiacha OS Kernel running");
     Ok(())

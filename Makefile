@@ -131,6 +131,33 @@ qemu-boot: image-build
 
 run-qemu: qemu-boot
 
+# WASM & WSL helpers
+build-wasm:
+	@echo "$(YELLOW)Building Hello Kiacha WASM...$(NC)"
+	@if command -v bash >/dev/null 2>&1; then \
+		bash -lc 'bash "$(SCRIPTS_DIR)/build-wasm.sh"'; \
+	else \
+		echo "Please run: bash scripts/build-wasm.sh (WSL or bash required)"; exit 1; \
+	fi
+
+.PHONY: wsl wsl-buildroot
+# Print helpful WSL commands to run Buildroot and WASM builds
+wsl:
+	@echo "$(YELLOW)WSL Helper - copy & run these commands in Ubuntu/WSL$(NC)"
+	@echo ""
+	@echo "cd /mnt/c/Users/Vitorio/\"Kiacha OS\""
+	@echo "# Build WASM (after installing emsdk):"
+	@echo "bash scripts/build-wasm.sh"
+	@echo ""
+	@echo "# Build Buildroot (first copy defconfig):"
+	@echo "cp os-image/buildroot/configs/kiacha_defconfig buildroot/.config"
+	@echo "cd buildroot && make -j\$$(nproc)"
+
+wsl-buildroot:
+	@echo "$(YELLOW)Running Buildroot in WSL (must be in WSL shell)$(NC)"
+	@echo "Make sure you have required packages: gcc, make, binutils, rsync, cpio, python3"
+	@cd $(BUILDROOT_DIR) && make -j$$(nproc)
+
 # Test services
 test-services:
 	@echo "$(BLUE)Testing Kiacha OS Services$(NC)"

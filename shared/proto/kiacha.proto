@@ -2,42 +2,445 @@ syntax = "proto3";
 
 package kiacha;
 
-service KiachaAPI {
-  rpc Transcribe(AudioRequest) returns (TranscriptionResponse);
-  rpc Synthesize(SynthesisRequest) returns (AudioResponse);
-  rpc Chat(ChatRequest) returns (ChatResponse);
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+
+// ==================== Messages ====================
+
+// Module management
+message ModuleRequest {
+  string name = 1;
+  ModuleType type = 2;
+  map<string, string> config = 3;
 }
 
-message AudioRequest {
-  bytes audio_data = 1;
-  string format = 2;
-  int32 sample_rate = 3;
+message ModuleResponse {
+  string module_id = 1;
+  string status = 2;
+  int64 created_at = 3;
 }
 
-message TranscriptionResponse {
-  string text = 1;
-  float confidence = 2;
-  string language = 3;
+enum ModuleType {
+  MODULE_TYPE_UNSPECIFIED = 0;
+  MODULE_TYPE_BRAIN = 1;
+  MODULE_TYPE_INTERFACE = 2;
+  MODULE_TYPE_VISION = 3;
+  MODULE_TYPE_AUDIO = 4;
+  MODULE_TYPE_MEMORY = 5;
+  MODULE_TYPE_REASONING = 6;
+  MODULE_TYPE_CUSTOM = 7;
 }
 
-message SynthesisRequest {
-  string text = 1;
-  string voice = 2;
-  float speed = 3;
+// IPC messaging
+message IpcMessage {
+  string from = 1;
+  string to = 2;
+  string payload = 3;
+  int64 timestamp = 4;
 }
 
-message AudioResponse {
-  bytes audio_data = 1;
-  string format = 2;
-  int32 sample_rate = 3;
+message IpcResponse {
+  bool success = 1;
+  string message = 2;
 }
 
-message ChatRequest {
-  string prompt = 1;
-  string context = 2;
+// Permissions
+message PermissionRequest {
+  string module_id = 1;
+  Permission permission = 2;
 }
 
-message ChatResponse {
-  string response = 1;
-  float confidence = 2;
+message PermissionResponse {
+  bool granted = 1;
+  string reason = 2;
+}
+
+enum Permission {
+  PERMISSION_UNSPECIFIED = 0;
+  PERMISSION_SEND_IPC = 1;
+  PERMISSION_RUN_WASM = 2;
+  PERMISSION_ACCESS_MEMORY = 3;
+  PERMISSION_ACCESS_VISION = 4;
+  PERMISSION_ACCESS_AUDIO = 5;
+  PERMISSION_SYSTEM_CALL = 6;
+  PERMISSION_ADMIN = 7;
+}
+
+// Resources
+message ResourceStats {
+  float cpu_usage = 1;
+  float memory_total = 2;
+  float memory_used = 3;
+  float memory_percent = 4;
+  int64 timestamp = 5;
+}
+
+// WASM execution
+message WasmRequest {
+  string module_id = 1;
+  bytes wasm_data = 2;
+  repeated string args = 3;
+}
+
+message WasmResponse {
+  bool success = 1;
+  string result = 2;
+  string error = 3;
+}
+
+// Module info
+message ModuleInfo {
+  string id = 1;
+  string name = 2;
+  ModuleType type = 3;
+  string status = 4;
+  int64 created_at = 5;
+}
+
+message ModuleList {
+  repeated ModuleInfo modules = 1;
+}
+
+// Event (for event bus)
+message Event {
+  string event_type = 1;
+  string source = 2;
+  bytes payload = 3;
+  int64 timestamp = 4;
+}
+
+// System info (for Control Center)
+message SystemInfo {
+  int32 cpu_cores = 1;
+  int64 cpu_frequency = 2;
+  int64 memory_total = 3;
+  int64 memory_free = 4;
+  string kernel_version = 5;
+  string os_version = 6;
+}
+
+// Device info
+message DeviceInfo {
+  string device_id = 1;
+  string device_name = 2;
+  string device_type = 3;
+  bool connected = 4;
+}
+
+message DeviceList {
+  repeated DeviceInfo devices = 1;
+}
+
+// Settings
+message Settings {
+  string key = 1;
+  string value = 2;
+  string category = 3;
+}
+
+message SettingsList {
+  repeated Settings settings = 1;
+}
+
+// File system
+message PathRequest {
+  string path = 1;
+}
+
+message FileEntry {
+  string name = 1;
+  bool is_dir = 2;
+  int64 size = 3;
+  int64 modified = 4;
+  string permissions = 5;
+}
+
+message FileList {
+  repeated FileEntry entries = 1;
+}
+
+message StorageStats {
+  int64 total = 1;
+  int64 used = 2;
+  int64 free = 3;
+  float percent_used = 4;
+}
+
+// Process info (for Monitor)
+message ProcessInfo {
+  int32 pid = 1;
+  string name = 2;
+  string status = 3;
+  float cpu_percent = 4;
+  int64 memory_bytes = 5;
+  int64 io_read = 6;
+  int64 io_write = 7;
+  int64 created_at = 8;
+}
+
+message ProcessList {
+  repeated ProcessInfo processes = 1;
+}
+
+// Network info
+message NetworkInterface {
+  string name = 1;
+  string status = 2;
+  string ipv4 = 3;
+  string ipv6 = 4;
+  string mac_address = 5;
+  int64 rx_bytes = 6;
+  int64 tx_bytes = 7;
+}
+
+message NetworkStatus {
+  string primary_interface = 1;
+  bool connected = 2;
+  string ipv4 = 3;
+  repeated NetworkInterface interfaces = 4;
+}
+
+message WifiNetwork {
+  string ssid = 1;
+  int32 signal_strength = 2;
+  bool secured = 3;
+}
+
+message WifiScanResult {
+  repeated WifiNetwork networks = 1;
+}
+
+message FirewallRule {
+  string rule_id = 1;
+  string source = 2;
+  string destination = 3;
+  string port = 4;
+  string action = 5; // allow/deny
+  string protocol = 6; // tcp/udp/both
+}
+
+message FirewallRuleList {
+  repeated FirewallRule rules = 1;
+}
+
+message TrafficLog {
+  int64 timestamp = 1;
+  string source = 2;
+  string destination = 3;
+  string protocol = 4;
+  int64 bytes = 5;
+}
+
+message TrafficLogList {
+  repeated TrafficLog logs = 1;
+}
+
+// User management
+message User {
+  string user_id = 1;
+  string username = 2;
+  string display_name = 3;
+  string role = 4;
+  bool active = 5;
+  int64 created_at = 6;
+}
+
+message UserList {
+  repeated User users = 1;
+}
+
+message UserPermission {
+  string app = 1;
+  repeated string permissions = 2;
+}
+
+message UserPermissionList {
+  string user_id = 1;
+  repeated UserPermission app_permissions = 2;
+}
+
+message BiometricData {
+  string type = 1; // face, fingerprint, iris
+  bytes data = 2;
+}
+
+message Session {
+  string session_id = 1;
+  string user_id = 2;
+  int64 started_at = 3;
+  int64 last_activity = 4;
+  string device = 5;
+}
+
+message SessionList {
+  repeated Session sessions = 1;
+}
+
+// Updates
+message UpdateInfo {
+  string component = 1; // kernel, brain, module_name
+  string current_version = 1;
+  string available_version = 2;
+  string release_notes = 3;
+  int64 release_date = 4;
+  bool critical = 5;
+}
+
+message UpdateList {
+  repeated UpdateInfo updates = 1;
+}
+
+message UpdateChannel {
+  string name = 1; // stable, beta, dev
+  bool enabled = 2;
+}
+
+message UpdateChannelList {
+  repeated UpdateChannel channels = 1;
+}
+
+message UpdateHistory {
+  string component = 1;
+  string version = 2;
+  string status = 3; // installed, failed, rolled_back
+  int64 timestamp = 4;
+}
+
+message UpdateHistoryList {
+  repeated UpdateHistory history = 1;
+}
+
+// Security & Audit
+message AuditLog {
+  string event_type = 1;
+  string actor = 2;
+  string action = 3;
+  string target = 4;
+  bool success = 5;
+  string details = 6;
+  int64 timestamp = 7;
+}
+
+message AuditLogList {
+  repeated AuditLog logs = 1;
+}
+
+message SecurityPolicy {
+  string policy_id = 1;
+  string name = 2;
+  string description = 3;
+  map<string, string> rules = 4;
+  bool enabled = 5;
+}
+
+message SandboxPolicy {
+  int64 max_memory = 1;
+  int64 max_cpu_time = 2;
+  repeated string allowed_syscalls = 3;
+  repeated string forbidden_operations = 4;
+}
+
+message EncryptionKey {
+  string key_id = 1;
+  string algorithm = 2;
+  int32 key_size = 3;
+  bool active = 4;
+}
+
+// ==================== Services ====================
+
+service KiachaKernel {
+  // Module management
+  rpc SpawnModule(ModuleRequest) returns (ModuleResponse);
+  rpc ListModules(google.protobuf.Empty) returns (ModuleList);
+  rpc PauseModule(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc ResumeModule(google.protobuf.StringValue) returns (google.protobuf.Empty);
+
+  // IPC
+  rpc SendIpc(IpcMessage) returns (IpcResponse);
+  rpc SubscribeToEvents(google.protobuf.StringValue) returns (stream Event);
+
+  // Permissions
+  rpc CheckPermission(PermissionRequest) returns (PermissionResponse);
+  rpc GrantPermission(PermissionRequest) returns (google.protobuf.Empty);
+  rpc RevokePermission(PermissionRequest) returns (google.protobuf.Empty);
+
+  // Resources & monitoring
+  rpc GetResources(google.protobuf.Empty) returns (ResourceStats);
+
+  // WASM
+  rpc RunWasm(WasmRequest) returns (WasmResponse);
+
+  // Security
+  rpc GetAuditLogs(google.protobuf.Empty) returns (stream google.protobuf.StringValue);
+
+  // ============= NEW: Control Center =============
+  rpc GetSystemInfo(google.protobuf.Empty) returns (SystemInfo);
+  rpc GetDeviceList(google.protobuf.Empty) returns (DeviceList);
+  rpc UpdateModulePolicy(ModuleRequest) returns (google.protobuf.Empty);
+  rpc GetLocalization(google.protobuf.Empty) returns (Settings);
+  rpc UpdateSetting(Settings) returns (google.protobuf.Empty);
+
+  // ============= NEW: Explorer =============
+  rpc FsList(PathRequest) returns (FileList);
+  rpc FsGetInfo(PathRequest) returns (FileEntry);
+  rpc FsCopy(PathRequest) returns (google.protobuf.Empty); // src -> dst
+  rpc FsMove(PathRequest) returns (google.protobuf.Empty);
+  rpc FsDelete(PathRequest) returns (google.protobuf.Empty);
+  rpc GetStorageStats(google.protobuf.Empty) returns (StorageStats);
+
+  // ============= NEW: Monitor =============
+  rpc ListProcesses(google.protobuf.Empty) returns (ProcessList);
+  rpc GetProcessInfo(google.protobuf.Int32Value) returns (ProcessInfo);
+  rpc KillProcess(google.protobuf.Int32Value) returns (google.protobuf.Empty);
+  rpc SetProcessPriority(ProcessInfo) returns (google.protobuf.Empty);
+
+  // ============= NEW: Network =============
+  rpc GetNetworkStatus(google.protobuf.Empty) returns (NetworkStatus);
+  rpc ListNetworks(google.protobuf.Empty) returns (WifiScanResult);
+  rpc ConnectNetwork(WifiNetwork) returns (google.protobuf.Empty);
+  rpc DisconnectNetwork(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc GetFirewallRules(google.protobuf.Empty) returns (FirewallRuleList);
+  rpc AddFirewallRule(FirewallRule) returns (google.protobuf.Empty);
+  rpc RemoveFirewallRule(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc GetTrafficLogs(google.protobuf.Empty) returns (TrafficLogList);
+  rpc SetBandwidthLimit(google.protobuf.Int64Value) returns (google.protobuf.Empty);
+
+  // ============= NEW: Users =============
+  rpc ListUsers(google.protobuf.Empty) returns (UserList);
+  rpc CreateUser(User) returns (User);
+  rpc DeleteUser(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc GetUserPermissions(google.protobuf.StringValue) returns (UserPermissionList);
+  rpc GrantUserPermission(UserPermission) returns (google.protobuf.Empty);
+  rpc RevokeUserPermission(UserPermission) returns (google.protobuf.Empty);
+  rpc AuthenticateBiometric(BiometricData) returns (Session);
+  rpc ListSessions(google.protobuf.StringValue) returns (SessionList);
+  rpc TerminateSession(google.protobuf.StringValue) returns (google.protobuf.Empty);
+
+  // ============= NEW: Updates =============
+  rpc CheckForUpdates(google.protobuf.Empty) returns (UpdateList);
+  rpc DownloadUpdate(UpdateInfo) returns (google.protobuf.Empty);
+  rpc InstallUpdate(UpdateInfo) returns (google.protobuf.Empty);
+  rpc RollbackUpdate(google.protobuf.StringValue) returns (google.protobuf.Empty);
+  rpc GetUpdateChannels(google.protobuf.Empty) returns (UpdateChannelList);
+  rpc SetUpdateChannel(UpdateChannel) returns (google.protobuf.Empty);
+  rpc GetUpdateHistory(google.protobuf.Empty) returns (UpdateHistoryList);
+  rpc GetUpdateStatus(google.protobuf.Empty) returns (UpdateInfo);
+
+  // ============= NEW: Security =============
+  rpc GetDetailedAuditLogs(google.protobuf.Empty) returns (AuditLogList);
+  rpc GetAllPermissions(google.protobuf.Empty) returns (stream PermissionRequest);
+  rpc GetSandboxStatus(google.protobuf.Empty) returns (SandboxPolicy);
+  rpc EncryptData(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc DecryptData(google.protobuf.BytesValue) returns (google.protobuf.BytesValue);
+  rpc VerifySignature(google.protobuf.BytesValue) returns (google.protobuf.BoolValue);
+  rpc GetSecurityPolicy(google.protobuf.Empty) returns (SecurityPolicy);
+  rpc UpdateSecurityPolicy(SecurityPolicy) returns (google.protobuf.Empty);
+  rpc ListEncryptionKeys(google.protobuf.Empty) returns (stream EncryptionKey);
+}
+
+service KiachaEventBus {
+  // Event broadcasting
+  rpc Publish(Event) returns (google.protobuf.Empty);
+  rpc Subscribe(google.protobuf.StringValue) returns (stream Event);
 }

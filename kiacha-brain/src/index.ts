@@ -2,6 +2,7 @@ import pino from 'pino';
 import { KiachaCoreBrain } from './core-brain.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import express, { Request, Response } from 'express';
+import appsRouter, { setKernelClient } from './routes/apps.js';
 
 const logger = pino({ level: 'info' });
 
@@ -11,6 +12,7 @@ const WS_PORT = 3002;
 const KERNEL_ADDRESS = process.env.KERNEL_ADDRESS || 'localhost:50051';
 
 app.use(express.json());
+app.use('/api', appsRouter);
 
 // Initialize brain with kernel connection
 const brain = new KiachaCoreBrain(KERNEL_ADDRESS);
@@ -77,6 +79,9 @@ app.get('/api/kernel/resources', async (req: Request, res: Response) => {
     logger.info('🧠 Connecting to Kiacha Kernel...');
     await brain.connect();
     logger.info('✓ Brain connected to kernel');
+
+    // Set kernel client for apps routes
+    setKernelClient(brain.kernelClient);
 
     // WebSocket server for real-time communication
     const wss = new WebSocketServer({ port: WS_PORT });

@@ -1,5 +1,7 @@
 import pino from 'pino';
 import { PythonShell } from 'python-shell';
+import KiachaKernelClient from './grpc-client.js';
+import KiachaEventBus from './event-bus.js';
 
 const logger = pino();
 
@@ -41,7 +43,6 @@ export class Memory {
 export class AudioModule {
   async transcribe(audioData: unknown): Promise<string> {
     logger.info('Transcribing audio...');
-    // Call Python Whisper service
     try {
       const result = await this.callPython('whisper', { audio: audioData });
       return result as string;
@@ -53,7 +54,6 @@ export class AudioModule {
 
   async speak(text: string): Promise<unknown> {
     logger.info(`Speaking: ${text}`);
-    // Call Python Piper service
     try {
       const result = await this.callPython('piper', { text });
       return result;
@@ -82,8 +82,13 @@ export class KiachaCoreBrain {
   public memory = new Memory();
   public audio = new AudioModule();
   private modules: Map<string, unknown> = new Map();
+  private kernelClient: KiachaKernelClient;
+  private eventBus: KiachaEventBus;
+  private brainModuleId: string | null = null;
 
-  constructor() {
+  constructor(kernelAddress: string = 'localhost:50051') {
+    this.kernelClient = new KiachaKernelClient(kernelAddress);
+    this.eventBus = new KiachaEventBus(kernelAddress);
     this.initializeModules();
   }
 
@@ -94,18 +99,52 @@ export class KiachaCoreBrain {
   }
 
   /**
+   * Connect to kernel and register brain module
+   */
+  async connect(): Promise<void> {
+    try {
+      // Spawn the brain module in the kernel
+      this.brainModuleId = await this.kernelClient.spawnModule(
+        'core-brain',
+        1, // MODULE_TYPE_BRAIN
+        { version: '0.1.0' }
+      );
+
+      this.logger.info(`✓ Brain connected to kernel: ${this.brainModuleId}`);
+
+      // Subscribe to kernel events
+      await this.eventBus.subscribeToKernelEvents('module_spawned');
+      await this.eventBus.subscribeToKernelEvents('module_failed');
+
+      // Listen to events
+      this.eventBus.on('module_spawned', (data: any) => {
+        this.logger.info(`Module spawned event: ${JSON.stringify(data)}`);
+      });
+
+      this.eventBus.on('module_failed', (data: any) => {
+        this.logger.error(`Module failed event: ${JSON.stringify(data)}`);
+      });
+    } catch (error) {
+      this.logger.error('Failed to connect to kernel:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Main inference function — generates text from prompt
    */
   async infer(prompt: string): Promise<string> {
     this.logger.info(`Inferring: ${prompt}`);
-    
+
     // In production, this would call a language model
-    // For now, return a mock response
     const response = `Kiacha thinking about: "${prompt}"...`;
-    
+
     // Store in memory
     await this.memory.store({ type: 'inference', prompt, response });
-    
+
+    // Emit event via event bus
+    this.eventBus.emitLocal('inference', { prompt, response });
+
     return response;
   }
 
@@ -114,18 +153,17 @@ export class KiachaCoreBrain {
    */
   async reason(task: string): Promise<string> {
     this.logger.info(`Reasoning about: ${task}`);
-    
-    // Multi-step reasoning
+
     const steps: string[] = [];
     steps.push(`Step 1: Analyzing task: ${task}`);
     steps.push(`Step 2: Breaking down components...`);
     steps.push(`Step 3: Evaluating options...`);
     steps.push(`Step 4: Concluding...`);
-    
+
     const reasoning = steps.join('\n');
-    
+
     await this.memory.store({ type: 'reasoning', task, steps });
-    
+
     return reasoning;
   }
 
@@ -134,7 +172,7 @@ export class KiachaCoreBrain {
    */
   async vision(imageData: unknown): Promise<string> {
     this.logger.info('Processing image...');
-    
+
     try {
       const result = await this.callPythonModule('vision', { image: imageData });
       await this.memory.store({ type: 'vision', result });
@@ -150,7 +188,7 @@ export class KiachaCoreBrain {
    */
   async router(event: { type: string; payload: unknown }): Promise<unknown> {
     this.logger.info(`Routing event: ${event.type}`);
-    
+
     switch (event.type) {
       case 'infer':
         return this.infer(event.payload as string);
@@ -169,15 +207,62 @@ export class KiachaCoreBrain {
   }
 
   /**
-   * Get module status
+   * Get module status from kernel
    */
-  getModuleStatus(): Record<string, string> {
-    return {
-      memory: 'active',
-      audio: 'active',
-      vision: 'active',
-      reasoning: 'active',
-    };
+  async getModuleStatus(): Promise<Record<string, unknown>> {
+    try {
+      const modules = await this.kernelClient.listModules();
+      return {
+        brain: 'active',
+        kernel_modules: modules.length,
+        memory: 'active',
+        audio: 'active',
+        vision: 'active',
+        reasoning: 'active',
+      };
+    } catch (error) {
+      this.logger.error('Failed to get module status:', error);
+      return {
+        error: 'Failed to connect to kernel',
+      };
+    }
+  }
+
+  /**
+   * Get kernel resources
+   */
+  async getKernelResources(): Promise<any> {
+    try {
+      return await this.kernelClient.getResources();
+    } catch (error) {
+      this.logger.error('Failed to get kernel resources:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Run WASM in kernel sandbox
+   */
+  async runWasmInKernel(wasmData: Buffer, args: string[] = []): Promise<string> {
+    if (!this.brainModuleId) {
+      throw new Error('Brain not connected to kernel');
+    }
+
+    try {
+      return await this.kernelClient.runWasm(this.brainModuleId, wasmData, args);
+    } catch (error) {
+      this.logger.error('Failed to run WASM:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cleanup and disconnect
+   */
+  disconnect(): void {
+    this.eventBus.close();
+    this.kernelClient.close();
+    this.logger.info('Brain disconnected from kernel');
   }
 
   private async callPythonModule(module: string, args: unknown): Promise<unknown> {

@@ -21,6 +21,8 @@ wasmtime = "17.0"
 wasmtime-wasi = "17.0"
 libc = "0.2"
 nix = { version = "0.27", features = ["process", "signal"] }
+chrono = "0.4"
+sysinfo = "0.30"
 
 [dev-dependencies]
 criterion = "0.5"
@@ -28,6 +30,9 @@ criterion = "0.5"
 [[bin]]
 name = "kiacha-kernel"
 path = "src/main.rs"
+
+[build-script]
+build = "build.rs"
 
 [profile.release]
 opt-level = 3
