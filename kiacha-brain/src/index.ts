@@ -7,6 +7,7 @@ import reasoningRouter, { initializeReasoning } from './routes/reasoning.js';
 import toolsRouter, { initializeTools } from './routes/tools.js';
 import eventsRouter, { initializeEventBus } from './routes/events.js';
 import memoryRouter from './routes/memory.js';
+import supremeRouter, { initializeSupremeSystems } from './routes/supreme.js';
 
 const logger = pino({ level: 'info' });
 
@@ -23,6 +24,7 @@ app.use('/api/reasoning', reasoningRouter);
 app.use('/api/tools', toolsRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/memory', memoryRouter);
+app.use('/api', supremeRouter);
 
 // Initialize brain with kernel connection
 const brain = new KiachaCoreBrain(KERNEL_ADDRESS);
@@ -95,12 +97,19 @@ app.get('/api/kernel/resources', async (req: Request, res: Response) => {
     await initializeReasoning(brain.kernelClient);
     await initializeTools(brain.kernelClient);
     await initializeEventBus(null, brain.kernelClient);
+    initializeSupremeSystems();
     
     logger.info('✓ Cognitive modules initialized');
     logger.info('  - Reasoning Engine (WASM)')
     logger.info('  - Tool Use Engine (30+ tools)')
     logger.info('  - Cognitive Event Bus')
     logger.info('  - Semantic Memory');
+    logger.info('✓ Supreme Cognition modules initialized');
+    logger.info('  - HeartCore Emotional Engine (10 emotions)');
+    logger.info('  - Supreme Cognition Engine (10 domain experts)');
+    logger.info('  - Skill Router & NLP');
+    logger.info('  - Personality Pack (5 profiles)');
+    logger.info('  - Fusion Engine (Logic + Emotion)');
 
     // WebSocket server for real-time communication
     const wss = new WebSocketServer({ port: WS_PORT });
