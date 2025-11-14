@@ -1,4 +1,5 @@
-name: Build Hello Kiacha WASM
+
+name: CI — Build Frontend & Hello Kiacha WASM
 
 on:
   push:
@@ -6,27 +7,72 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  build-wasm:
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Install and build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  build-wasm:
+    name: Build Hello Kiacha WASM
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore emsdk cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/emsdk
+          key: emsdk-${{ runner.os }}-v1
+          restore-keys: |
+            emsdk-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3 cmake build-essential git wget unzip
 
-      - name: Install Emscripten SDK (emsdk)
+      - name: Install or reuse Emscripten SDK (emsdk)
         run: |
-          # Clone emsdk if missing
+          # Prefer a cached path, otherwise clone into $HOME/emsdk
+          if [ -d "${{ runner.temp }}/emsdk" ]; then
+            echo "Using cached emsdk at ${{ runner.temp }}/emsdk"
+            mv "${{ runner.temp }}/emsdk" $HOME/emsdk || true
+          fi
           if [ ! -d "$HOME/emsdk" ]; then
             git clone https://github.com/emscripten-core/emsdk.git $HOME/emsdk
           fi
           cd $HOME/emsdk
           ./emsdk install latest
           ./emsdk activate latest
-          # Source environment for this step
           source $HOME/emsdk/emsdk_env.sh
           emcc --version
 
@@ -34,12 +80,19 @@ jobs:
         env:
           PROJECT_ROOT: ${{ github.workspace }}
         run: |
-          # Ensure emsdk env is present for this shell
           source $HOME/emsdk/emsdk_env.sh || true
           bash scripts/build-wasm.sh
+
+      - name: Save emsdk to cache
+        if: always()
+        run: |
+          # Move emsdk to runner.temp for caching
+          rm -rf "${{ runner.temp }}/emsdk" || true
+          mv $HOME/emsdk "${{ runner.temp }}/emsdk"
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: hello_kiacha-wasm
           path: frontend/public/wasm
+
