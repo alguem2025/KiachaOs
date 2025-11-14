@@ -1,20 +1,29 @@
 import pino from 'pino';
 import { KiachaCoreBrain } from './core-brain.js';
-import { WebSocketServer } from 'ws';
-import express from 'express';
+import { WebSocketServer, WebSocket } from 'ws';
+import express, { Request, Response } from 'express';
 
 const logger = pino({ level: 'info' });
 
 const app = express();
 const PORT = 3001;
 const WS_PORT = 3002;
+const KERNEL_ADDRESS = process.env.KERNEL_ADDRESS || 'localhost:50051';
 
 app.use(express.json());
 
-const brain = new KiachaCoreBrain();
+// Initialize brain with kernel connection
+const brain = new KiachaCoreBrain(KERNEL_ADDRESS);
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  logger.info('Shutting down...');
+  brain.disconnect();
+  process.exit(0);
+});
 
 // REST API endpoints
-app.post('/api/infer', async (req, res) => {
+app.post('/api/infer', async (req: Request, res: Response) => {
   try {
     const { prompt } = req.body;
     const result = await brain.infer(prompt);
@@ -24,7 +33,7 @@ app.post('/api/infer', async (req, res) => {
   }
 });
 
-app.post('/api/reason', async (req, res) => {
+app.post('/api/reason', async (req: Request, res: Response) => {
   try {
     const { task } = req.body;
     const result = await brain.reason(task);
@@ -34,7 +43,7 @@ app.post('/api/reason', async (req, res) => {
   }
 });
 
-app.get('/api/memory/search', async (req, res) => {
+app.get('/api/memory/search', async (req: Request, res: Response) => {
   try {
     const { query } = req.query;
     const results = await brain.memory.search(query as string);
@@ -44,48 +53,77 @@ app.get('/api/memory/search', async (req, res) => {
   }
 });
 
-app.get('/api/status', (req, res) => {
-  res.json({ status: 'running', modules: brain.getModuleStatus() });
+app.get('/api/status', async (req: Request, res: Response) => {
+  try {
+    const status = await brain.getModuleStatus();
+    res.json({ status: 'running', modules: status });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
 });
 
-app.listen(PORT, () => {
-  logger.info(`🧠 Kiacha Core Brain API listening on port ${PORT}`);
+app.get('/api/kernel/resources', async (req: Request, res: Response) => {
+  try {
+    const resources = await brain.getKernelResources();
+    res.json(resources);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
 });
 
-// WebSocket server for real-time communication
-const wss = new WebSocketServer({ port: WS_PORT });
+// Initialize the brain and start server
+(async () => {
+  try {
+    logger.info('🧠 Connecting to Kiacha Kernel...');
+    await brain.connect();
+    logger.info('✓ Brain connected to kernel');
 
-wss.on('connection', (ws) => {
-  logger.info('UI Client connected');
+    // WebSocket server for real-time communication
+    const wss = new WebSocketServer({ port: WS_PORT });
 
-  ws.on('message', async (data) => {
-    try {
-      const message = JSON.parse(data.toString());
-      logger.debug(`Received message: ${message.type}`);
+    wss.on('connection', (ws: WebSocket) => {
+      logger.info('UI Client connected');
 
-      if (message.type === 'infer') {
-        const result = await brain.infer(message.prompt);
-        ws.send(JSON.stringify({ type: 'infer_result', result }));
-      } else if (message.type === 'vision') {
-        const result = await brain.vision(message.imageData);
-        ws.send(JSON.stringify({ type: 'vision_result', result }));
-      } else if (message.type === 'audio_transcribe') {
-        const result = await brain.audio.transcribe(message.audioData);
-        ws.send(JSON.stringify({ type: 'transcribe_result', result }));
-      } else if (message.type === 'audio_speak') {
-        const audioData = await brain.audio.speak(message.text);
-        ws.send(JSON.stringify({ type: 'speak_result', audioData }));
-      }
-    } catch (error) {
-      logger.error(error);
-      ws.send(JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Unknown error' }));
-    }
-  });
+      ws.on('message', async (data: Buffer) => {
+        try {
+          const message = JSON.parse(data.toString());
+          logger.debug(`Received message: ${message.type}`);
 
-  ws.on('close', () => {
-    logger.info('Client disconnected');
-  });
-});
+          if (message.type === 'infer') {
+            const result = await brain.infer(message.prompt);
+            ws.send(JSON.stringify({ type: 'infer_result', result }));
+          } else if (message.type === 'vision') {
+            const result = await brain.vision(message.imageData);
+            ws.send(JSON.stringify({ type: 'vision_result', result }));
+          } else if (message.type === 'audio_transcribe') {
+            const result = await brain.audio.transcribe(message.audioData);
+            ws.send(JSON.stringify({ type: 'transcribe_result', result }));
+          } else if (message.type === 'audio_speak') {
+            const audioData = await brain.audio.speak(message.text);
+            ws.send(JSON.stringify({ type: 'speak_result', audioData }));
+          } else if (message.type === 'kernel_resources') {
+            const resources = await brain.getKernelResources();
+            ws.send(JSON.stringify({ type: 'kernel_resources', resources }));
+          }
+        } catch (error) {
+          logger.error(error);
+          ws.send(JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Unknown error' }));
+        }
+      });
 
-logger.info(`🌐 WebSocket server listening on port ${WS_PORT}`);
-logger.info(`✓ Kiacha Core Brain is running!`);
+      ws.on('close', () => {
+        logger.info('Client disconnected');
+      });
+    });
+
+    app.listen(PORT, () => {
+      logger.info(`🧠 Kiacha Core Brain API listening on port ${PORT}`);
+    });
+
+    logger.info(`🌐 WebSocket server listening on port ${WS_PORT}`);
+    logger.info(`✓ Kiacha Core Brain is running!`);
+  } catch (error) {
+    logger.error({ error }, 'Failed to start Kiacha Brain');
+    process.exit(1);
+  }
+})();
